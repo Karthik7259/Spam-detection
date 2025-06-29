@@ -170,6 +170,7 @@ type Step = {
   patternIndex: number
   matches?: number[]
   badCharTable?: Record<string, number>
+  failureFunction?: number[]
   explanation: string
   result?: { found: boolean; position: number }
 }
@@ -276,7 +277,11 @@ function PatternMatcher() {
 
     // Generate steps based on selected algorithm
     const generatedSteps =
-      algorithm === "horspool" ? generateHorspoolSteps(text, pattern) : generateBruteForceSteps(text, pattern)
+      algorithm === "horspool" 
+        ? generateHorspoolSteps(text, pattern) 
+        : algorithm === "kmp"
+        ? generateKMPSteps(text, pattern)
+        : generateBruteForceSteps(text, pattern)
 
     setSteps(generatedSteps)
     setIsRunning(true)
@@ -391,8 +396,13 @@ function PatternMatcher() {
               <div>
                 <h3 className="font-semibold mb-1">2. Select an Algorithm</h3>
                 <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                  Choose between Horspool (more efficient) or Brute Force algorithm.
+                  Choose between Horspool (more efficient), KMP (linear time), or Brute Force algorithm.
                 </p>
+                <ul className="text-xs list-disc pl-5 mt-1" style={{ color: "var(--text-secondary)" }}>
+                  <li><strong>Horspool:</strong> Uses bad character heuristic for efficient skipping</li>
+                  <li><strong>KMP:</strong> Uses failure function to avoid re-examining text characters</li>
+                  <li><strong>Brute Force:</strong> Simple character-by-character comparison</li>
+                </ul>
               </div>
               <div>
                 <h3 className="font-semibold mb-1">3. Control the Animation</h3>
@@ -511,6 +521,12 @@ function PatternMatcher() {
                     </Label>
                   </div>
                   <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="kmp" id="kmp" />
+                    <Label htmlFor="kmp" style={{ color: "var(--text-primary)" }}>
+                      KMP Algorithm
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
                     <RadioGroupItem value="bruteforce" id="bruteforce" />
                     <Label htmlFor="bruteforce" style={{ color: "var(--text-primary)" }}>
                       Brute Force Algorithm
@@ -618,7 +634,7 @@ function PatternMatcher() {
         <CardHeader className="pb-2">
           <CardTitle style={{ color: "var(--text-primary)" }}>Visualization</CardTitle>
           <CardDescription style={{ color: "var(--text-secondary)" }}>
-            {algorithm === "horspool" ? "Horspool" : "Brute Force"} algorithm in action
+            {algorithm === "horspool" ? "Horspool" : algorithm === "kmp" ? "KMP" : "Brute Force"} algorithm in action
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -895,6 +911,103 @@ function VisualizationDisplay({ text, pattern, step }: { text: string; pattern: 
           </div>
         </div>
       )}
+
+      {step.failureFunction && (
+        <div className="space-y-2 mt-8 transform perspective-[1000px]">
+          <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+            Failure Function / LPS Array (KMP):
+          </p>
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-collapse transform-style-preserve-3d">
+              <thead>
+                <tr>
+                  <th
+                    className="border px-3 py-2 text-center"
+                    style={{
+                      backgroundColor: "var(--bg-muted)",
+                      borderColor: "var(--border-color)",
+                      color: "var(--text-primary)",
+                      transform: "translateZ(5px)",
+                    }}
+                  >
+                    Index
+                  </th>
+                  {pattern.split("").map((char, index) => (
+                    <th
+                      key={index}
+                      className="border px-3 py-2 text-center"
+                      style={{
+                        backgroundColor: "var(--bg-muted)",
+                        borderColor: "var(--border-color)",
+                        color: "var(--text-primary)",
+                        transform: "translateZ(5px)",
+                      }}
+                    >
+                      {index}
+                    </th>
+                  ))}
+                </tr>
+                <tr>
+                  <th
+                    className="border px-3 py-2 text-center"
+                    style={{
+                      backgroundColor: "var(--bg-muted)",
+                      borderColor: "var(--border-color)",
+                      color: "var(--text-primary)",
+                      transform: "translateZ(5px)",
+                    }}
+                  >
+                    Char
+                  </th>
+                  {pattern.split("").map((char, index) => (
+                    <th
+                      key={index}
+                      className="border px-3 py-2 text-center"
+                      style={{
+                        backgroundColor: "var(--bg-muted)",
+                        borderColor: "var(--border-color)",
+                        color: "var(--text-primary)",
+                        transform: "translateZ(5px)",
+                      }}
+                    >
+                      {char}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td
+                    className="border px-3 py-2 text-center font-semibold"
+                    style={{
+                      backgroundColor: "var(--bg-secondary)",
+                      borderColor: "var(--border-color)",
+                      color: "var(--text-primary)",
+                      transform: "translateZ(10px)",
+                    }}
+                  >
+                    LPS
+                  </td>
+                  {step.failureFunction.map((value, index) => (
+                    <td
+                      key={index}
+                      className="border px-3 py-2 text-center"
+                      style={{
+                        backgroundColor: "var(--bg-secondary)",
+                        borderColor: "var(--border-color)",
+                        color: "var(--text-primary)",
+                        transform: "translateZ(10px)",
+                      }}
+                    >
+                      {value}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1011,6 +1124,111 @@ function generateHorspoolSteps(text: string, pattern: string): Step[] {
   return steps
 }
 
+// Generate steps for KMP algorithm
+function generateKMPSteps(text: string, pattern: string): Step[] {
+  const steps: Step[] = []
+
+  // Split text and pattern into characters
+  const textChars = text.split("")
+  const patternChars = pattern.split("")
+
+  if (!text || !pattern || patternChars.length > textChars.length) {
+    return [
+      {
+        textIndex: 0,
+        patternIndex: 0,
+        explanation: "Cannot perform pattern matching: text or pattern is empty, or pattern is longer than text.",
+        result: { found: false, position: -1 },
+      },
+    ]
+  }
+
+  // Build failure function (LPS array)
+  const failureFunction = buildFailureFunction(pattern)
+
+  steps.push({
+    textIndex: 0,
+    patternIndex: 0,
+    failureFunction: [...failureFunction],
+    explanation: `Initialized the KMP algorithm. Created the failure function (LPS array) which helps us avoid unnecessary character comparisons.`,
+  })
+
+  let textIndex = 0
+  let patternIndex = 0
+  const matches: number[] = []
+
+  while (textIndex < textChars.length) {
+    steps.push({
+      textIndex,
+      patternIndex,
+      failureFunction: [...failureFunction],
+      matches: [...matches],
+      explanation: `Comparing pattern[${patternIndex}] = '${patternChars[patternIndex]}' with text[${textIndex}] = '${textChars[textIndex]}'.`,
+    })
+
+    if (patternChars[patternIndex] === textChars[textIndex]) {
+      // Match found
+      textIndex++
+      patternIndex++
+
+      if (patternIndex === patternChars.length) {
+        // Complete pattern match found
+        const matchStart = textIndex - patternChars.length
+        for (let i = 0; i < patternChars.length; i++) {
+          matches.push(matchStart + i)
+        }
+
+        steps.push({
+          textIndex: textIndex - 1,
+          patternIndex: patternIndex - 1,
+          failureFunction: [...failureFunction],
+          matches: [...matches],
+          explanation: `Found a match at position ${matchStart}! The pattern "${pattern}" was found in the text.`,
+          result: { found: true, position: matchStart },
+        })
+
+        // Early termination - we found a match
+        break
+      }
+    } else {
+      // Mismatch
+      if (patternIndex !== 0) {
+        steps.push({
+          textIndex,
+          patternIndex,
+          failureFunction: [...failureFunction],
+          matches: [...matches],
+          explanation: `Mismatch! Using failure function: pattern[${patternIndex}] doesn't match text[${textIndex}]. Moving pattern index from ${patternIndex} to ${failureFunction[patternIndex - 1]}.`,
+        })
+        patternIndex = failureFunction[patternIndex - 1]
+      } else {
+        steps.push({
+          textIndex,
+          patternIndex,
+          failureFunction: [...failureFunction],
+          matches: [...matches],
+          explanation: `Mismatch at the beginning of pattern. Moving to next character in text.`,
+        })
+        textIndex++
+      }
+    }
+  }
+
+  // If we didn't find any matches
+  if (matches.length === 0) {
+    steps.push({
+      textIndex: Math.min(textChars.length - 1, textIndex),
+      patternIndex: 0,
+      failureFunction: [...failureFunction],
+      matches: [],
+      explanation: `Completed search. No matches found for the pattern "${pattern}" in the text.`,
+      result: { found: false, position: -1 },
+    })
+  }
+
+  return steps
+}
+
 // Generate steps for Brute Force algorithm
 function generateBruteForceSteps(text: string, pattern: string): Step[] {
   const steps: Step[] = []
@@ -1099,6 +1317,25 @@ function generateBruteForceSteps(text: string, pattern: string): Step[] {
   }
 
   return steps
+}
+
+// Build failure function for KMP algorithm
+function buildFailureFunction(pattern: string): number[] {
+  const patternChars = pattern.split("")
+  const failureFunction = new Array(patternChars.length).fill(0)
+  
+  let j = 0
+  for (let i = 1; i < patternChars.length; i++) {
+    while (j > 0 && patternChars[i] !== patternChars[j]) {
+      j = failureFunction[j - 1]
+    }
+    if (patternChars[i] === patternChars[j]) {
+      j++
+    }
+    failureFunction[i] = j
+  }
+  
+  return failureFunction
 }
 
 export default PatternMatcher
